@@ -1,44 +1,47 @@
 # Release Checklist
 
-This workflow targets direct distribution with a Developer ID signature and Apple notarization. It is not a Mac App Store submission workflow.
+Releases are Developer ID-signed, notarized by Apple and published as GitHub Releases on [jarvisluk/HeadsetGesture](https://github.com/jarvisluk/HeadsetGesture/releases). Signing happens on the maintainer's Mac; CI only builds and tests.
 
-## Required before the first public build
+## Fixed decisions
 
-- [ ] Choose and keep one permanent reverse-DNS Bundle ID. Changing it later resets the app's identity and privacy grants.
-- [ ] Confirm the public product name, copyright owner, support address, and project URL.
-- [ ] Choose a software license and add its `LICENSE` file. No license has been assumed for this repository.
-- [ ] Review `PRIVACY.md` and publish it at a stable URL if a download page or store listing requires one.
-- [ ] Set the marketing version and a monotonically increasing build number.
-- [ ] Confirm the Developer ID Application certificate and notarization Keychain profile on the release Mac.
-- [ ] Test first launch, permission denial, later permission grant, reconnect, relaunch, and uninstall/reinstall on a clean Mac user account.
-- [ ] Test at least one Apple silicon Mac and one Intel Mac, plus every supported macOS major version that is practical.
-- [ ] Verify behavior with the exact headset models named on the download page. The current HID match uses the product name `Headset`.
-- [ ] Decide whether the public release needs English only or Chinese localization as well.
-- [ ] Add support and release channels: issue tracker, changelog, checksums, and a rollback copy of the previous signed build.
+- Bundle ID: `io.github.jarvisluk.HeadsetGesture`. Never change it: macOS ties privacy permissions and preferences to it. Settings from the pre-release ID `local.codex.HeadsetGesture` are migrated once on first launch.
+- License: MIT, copyright Jarvis Luk.
+- Versions live in `Resources/Info.plist`: `CFBundleShortVersionString` (marketing version, tagged as `v<version>`) and `CFBundleVersion` (build number, must increase with every release).
 
-## Build and distribution
+## One-time setup on the release Mac
 
-1. Generate the icon after changing its 1024×1024 source:
+1. A **Developer ID Application** certificate in the login keychain (`security find-identity -v -p codesigning`).
+2. Notarization credentials stored under the profile name `HeadsetGesture`. Use an [app-specific password](https://support.apple.com/102654) for your Apple ID:
 
    ```sh
-   ./scripts/generate-app-icon.sh
+   xcrun notarytool store-credentials HeadsetGesture --apple-id <apple-id> --team-id <team-id>
    ```
 
-2. Store notarization credentials once:
+3. The GitHub CLI signed in with push access: `gh auth login`.
+
+## Every release
+
+1. Bump `CFBundleShortVersionString` and `CFBundleVersion` in `Resources/Info.plist`, commit on `main` and push. Wait for CI to pass.
+2. If the icon source changed, run `./scripts/generate-app-icon.sh` and commit the new `.icns` first.
+3. Run the release:
 
    ```sh
-   xcrun notarytool store-credentials HeadsetGesture
+   ./scripts/release.sh
    ```
 
-3. Build a universal, Developer ID-signed release with a secure timestamp:
+   It refuses to run unless `main` is clean and pushed, the tag is new, `gh` is signed in and the notary profile exists. It then builds a universal binary, signs it with a secure timestamp, notarizes and staples it, checks the result with `spctl`, writes `dist/HeadsetGesture-<version>.zip` plus a `.sha256` file, pushes the `v<version>` tag and creates a **draft** GitHub Release with generated notes.
+
+4. Download the zip from the draft, test it on another Mac (first launch, permission grant, reconnect, relaunch), then publish:
 
    ```sh
-   BUNDLE_IDENTIFIER=com.example.HeadsetGesture \
-   MARKETING_VERSION=1.2.0 \
-   BUILD_NUMBER=4 \
-   COPYRIGHT_NOTICE='Copyright © 2026 Your Name. All rights reserved.' \
-   NOTARY_PROFILE=HeadsetGesture \
-   ./scripts/prepare-release.sh
+   gh release edit v<version> --repo jarvisluk/HeadsetGesture --draft=false
    ```
 
-4. Keep the notarized zip from `dist/`, record its SHA-256 checksum, and test that exact archive on another Mac before publishing it.
+   `PUBLISH=1 ./scripts/release.sh` skips the draft step.
+
+## Before the first public release
+
+- [ ] Test on a clean user account: first launch, permission denial, later grant, reconnect, relaunch, uninstall and reinstall.
+- [ ] Test on Apple silicon and Intel, and on each supported macOS major version you can reach.
+- [ ] Verify the headset models named on the download page. The HID match uses the product name `Headset`.
+- [ ] Keep the previous signed zip as a rollback copy.

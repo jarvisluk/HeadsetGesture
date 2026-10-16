@@ -86,4 +86,34 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(DockIconVisibility.activationPolicy(showDockIcon: true), .regular)
         XCTAssertEqual(DockIconVisibility.activationPolicy(showDockIcon: false), .accessory)
     }
+
+    @MainActor
+    func testLegacyDefaultsMigrateOnceWithoutOverwriting() {
+        let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+        let legacyName = "SettingsStoreTests.legacy.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        let legacy = UserDefaults(suiteName: legacyName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+            legacy.removePersistentDomain(forName: legacyName)
+        }
+
+        let legacyStore = SettingsStore(defaults: legacy)
+        legacyStore.doubleTapInterval = 0.4
+        legacyStore.singleTapAction.key = .rightOption
+        legacyStore.singleTapAction.kind = .keyboard
+        defaults.set(false, forKey: "showDockIcon")
+        legacy.set(true, forKey: "showDockIcon")
+
+        SettingsStore.migrateLegacyDefaults(into: defaults, from: legacy)
+        let migrated = SettingsStore(defaults: defaults)
+        XCTAssertEqual(migrated.doubleTapInterval, 0.4)
+        XCTAssertEqual(migrated.singleTapAction.key, .rightOption)
+        XCTAssertFalse(migrated.showDockIcon, "existing values must not be overwritten")
+
+        // A second run must not re-import values the user has since changed.
+        migrated.doubleTapInterval = 0.25
+        SettingsStore.migrateLegacyDefaults(into: defaults, from: legacy)
+        XCTAssertEqual(SettingsStore(defaults: defaults).doubleTapInterval, 0.25)
+    }
 }

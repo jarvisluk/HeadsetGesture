@@ -8,7 +8,7 @@ import IOKit.hidsystem
 import OSLog
 
 private let gestureDiagnosticLogger = Logger(
-    subsystem: "local.codex.HeadsetGesture",
+    subsystem: Bundle.main.bundleIdentifier ?? "io.github.jarvisluk.HeadsetGesture",
     category: "GestureDiagnostics"
 )
 

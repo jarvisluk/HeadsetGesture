@@ -50,6 +50,35 @@ final class SettingsStore: ObservableObject {
         static let doubleTapAction = "doubleTapAction"
         static let tripleTapAction = "tripleTapAction"
         static let longPressAction = "longPressAction"
+        static let migratedLegacyDefaults = "migratedLegacyDefaults"
+
+        static let settings = [
+            enabled, showDockIcon, doubleTapInterval, longPressDuration,
+            longPressRecognitionEnabled, longPressTriggerMode, showLongPressDuration,
+            longPressDisplayPosition, singleTapAction, doubleTapAction,
+            tripleTapAction, longPressAction
+        ]
+    }
+
+    /// Preferences domain used by builds before the public Bundle ID.
+    nonisolated static let legacyDefaultsDomain = "local.codex.HeadsetGesture"
+
+    /// Copies settings saved under the pre-release Bundle ID once, so changing the
+    /// Bundle ID does not reset the user's mappings. Existing values are never
+    /// overwritten.
+    static func migrateLegacyDefaults(
+        into defaults: UserDefaults = .standard,
+        from legacy: UserDefaults? = UserDefaults(suiteName: legacyDefaultsDomain)
+    ) {
+        guard !defaults.bool(forKey: Keys.migratedLegacyDefaults) else { return }
+        defaults.set(true, forKey: Keys.migratedLegacyDefaults)
+        guard let legacy else { return }
+
+        for key in Keys.settings where defaults.object(forKey: key) == nil {
+            if let value = legacy.object(forKey: key) {
+                defaults.set(value, forKey: key)
+            }
+        }
     }
 
     init(defaults: UserDefaults = .standard) {

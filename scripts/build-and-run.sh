@@ -7,12 +7,13 @@ configuration="${1:-release}"
 build_app_dir="$project_dir/dist/Headset Gesture.app"
 app_dir="${HEADSET_GESTURE_INSTALL_PATH:-/Applications/Headset Gesture.app}"
 executable_path="$app_dir/Contents/MacOS/HeadsetGesture"
+bundle_id="$(plutil -extract CFBundleIdentifier raw "$project_dir/Resources/Info.plist")"
 
 "$script_dir/build-app.sh" "$configuration"
 
 if pgrep -x HeadsetGesture >/dev/null 2>&1; then
     echo "Stopping existing HeadsetGesture instance..."
-    osascript -e 'tell application id "local.codex.HeadsetGesture" to quit' >/dev/null 2>&1 || true
+    osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null 2>&1 || true
 
     for _ in {1..30}; do
         if ! pgrep -x HeadsetGesture >/dev/null 2>&1; then

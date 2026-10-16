@@ -1,86 +1,83 @@
 # Headset Gesture
 
-<img src="Resources/Brand/AppIcon.png" alt="Headset Gesture 图标" width="160">
+**English** · [简体中文](README.zh-CN.md)
 
-一个带主窗口和菜单栏入口的 macOS App，用于独占读取名为 `Headset` 的 Audio Consumer HID 设备：
+<img src="Resources/Brand/AppIcon.png" alt="Headset Gesture icon" width="160">
 
-- 单击映射为自定义按键或快捷键（默认播放/暂停）
-- 双击映射为自定义按键或快捷键
-- 长按映射为自定义按键或快捷键
-- 可调整双击间隔与长按阈值
-- 长按时在屏幕浮层实时显示持有时间，可选择七个固定位置或跟随当前聚焦的输入框
-- 实时示意图显示原始按键、手势识别阶段、映射输出与最近事件
-- 支持 F13–F20、字母键和修饰键组合
-- 支持独立映射左/右 Control、Option 和 Command 键
-- 支持播放/暂停、上一首、下一首、音量和静音等媒体键
-- 支持运行 macOS 快捷指令或 Shell 命令
-- 支持实验性的原始 CG 虚拟键码
+Turn the button on a wired headset into a programmable input on macOS. Headset Gesture takes exclusive control of the headset's Play/Pause button and maps single, double and triple taps and long presses to keys, shortcuts, media keys, Shortcuts or shell commands.
 
-## 使用
+## Features
 
-1. 将 `Headset Gesture.app` 移到“应用程序”文件夹。
-2. 启动后会自动显示按键映射主窗口，Dock 和菜单栏均有入口。如需隐藏 Dock 图标，可在 Customization → App 或菜单栏菜单中关闭“Show icon in Dock”，之后通过菜单栏图标打开主窗口。
-3. 在主窗口分别点击“请求输入监控权限”和“请求辅助功能权限”。
-4. 在“隐私与安全性”中允许“辅助功能”；该权限也包含事件监听。只有不授予辅助功能时，才需要单独允许“输入监控”。返回 App 后，授权状态会自动刷新。
-5. 回到 App 后会自动刷新并重新连接；如果状态仍未更新，点击“授权后重启 App”。
+- Map **single tap**, **double tap**, **triple tap** and **long press** independently.
+- Actions: any key or key combination (F13–F20, letters, Space, Return, Escape, Tab), left/right Control, Option and Command as separate keys, media keys (Play/Pause, Next, Previous, Volume, Mute), a macOS Shortcut, or a shell command.
+- Adjustable double-tap interval and long-press threshold, with a tap-only mode for headsets that drop release events.
+- An optional on-screen timer while you hold the button, shown at one of seven positions or next to the focused text field.
+- A live monitor that shows the raw HID signal, the recognizer state, the mapped output and recent events.
+- Menu bar control panel; the Dock icon can be hidden.
+- Everything runs locally. See [PRIVACY.md](PRIVACY.md).
 
-默认单击发送播放/暂停，双击发送 F13，长按发送 F14。为区分双击，单击动作会在双击间隔结束后触发。
+## Requirements
 
-当前硬件把三个实体按钮都上报为同一个播放/暂停 HID 信号，所以三者共用相同手势配置。
+- macOS 13 Ventura or later, Apple silicon or Intel.
+- A wired headset with an inline button, plugged into the Mac's headphone jack (it appears to macOS as an HID device named `Headset`).
 
-这里的 “Headset” 设备是 Mac 耳机孔的线控解码器（`AppleCS42L84Mikey`）。它的报告描述符虽然声明了播放/暂停（0xCD）、音量减（0xEA）和音量加（0xE9），但只有 Apple 规格的线控才会上报音量键；常见安卓/CTIA 规格耳机的音量键无法被解码，按偏或按到音量键时可能没有信号，或者让播放/暂停信号持续处于“按下”，导致这段时间内的点击丢失。需要独立的音量键时，请使用 Apple 规格的有线耳机、USB-C 或蓝牙耳机。
+## Install
 
-## 关于“全新按键”
+1. Download the latest `HeadsetGesture-<version>.zip` from [Releases](https://github.com/jarvisluk/HeadsetGesture/releases) and unzip it. Builds are signed with a Developer ID and notarized by Apple.
+2. Move **Headset Gesture.app** to the Applications folder and open it.
+3. In the dashboard, click **Request Accessibility Permission** and allow it in System Settings → Privacy & Security → Accessibility. Accessibility also covers event listening; Input Monitoring is only needed if you don't grant Accessibility.
+4. The app picks up the new permission automatically within a few seconds. If the status does not change, use **Restart App After Granting Access**.
 
-普通本地签名 App 可以可靠发送 macOS 定义的虚拟键码，其中功能键为 F13–F20。F21–F24 或完全自定义的 HID Usage 需要 Apple 限制的 `com.apple.developer.hid.virtual.device` entitlement，或者依赖 Karabiner VirtualHID 等系统扩展，因此本项目不伪装提供这些不可用选项。
+To hide the Dock icon, turn off **Show icon in Dock** in Customization → App or in the menu bar panel, then open the dashboard from the menu bar icon.
 
-“原始虚拟键码”模式可以发送 0–127 范围的 CGKeyCode，但未定义键码只会被监听原始 CGEvent 的软件识别，普通 App 可能忽略。
+## Defaults
 
-## 构建
+| Gesture | Default action |
+| --- | --- |
+| Single tap | Play/Pause |
+| Double tap | F13 |
+| Triple tap | Off |
+| Long press | F14 (long-press recognition is off by default) |
+
+A single tap fires once the double-tap interval has passed, so the app can tell it apart from a double tap.
+
+## Hardware notes
+
+The `Headset` device is the Mac's headphone-jack remote decoder (`AppleCS42L84Mikey`), not the headset itself. Its report descriptor declares Play/Pause (0xCD), Volume Down (0xEA) and Volume Up (0xE9), but only Apple-standard remotes report the volume buttons. On common Android/CTIA headsets:
+
+- the volume buttons send nothing, or are read as Play/Pause, so all buttons share one set of gestures;
+- an off-center press can hold the Play/Pause signal down, and clicks during that time are lost.
+
+If you need separate volume buttons, use an Apple-standard wired headset, or a USB-C or Bluetooth headset.
+
+## About "new" keys
+
+A normally signed app can reliably send the virtual key codes macOS defines, which include F13–F20. F21–F24 or fully custom HID usages require Apple's restricted `com.apple.developer.hid.virtual.device` entitlement or a system extension such as Karabiner VirtualHID, so the app does not offer them.
+
+**Raw virtual key code** mode sends any CGKeyCode from 0 to 127. Undefined codes are only seen by software that listens to raw CGEvents; most apps ignore them.
+
+## Build from source
 
 ```sh
 swift test
-swift build -c release
-```
-
-生成可双击运行的 `.app` 和 zip：
-
-```sh
 ./scripts/build-app.sh
 ```
 
-产物位于 `dist/`。
+The app bundle and a zip are written to `dist/`. The build script signs with the first Developer ID Application certificate in your keychain (or `CODE_SIGN_IDENTITY`) and falls back to ad-hoc signing; with ad-hoc signing macOS may ask for permissions again after every rebuild.
 
-构建脚本会优先使用钥匙串中的 Developer ID Application 证书，以便 macOS 在重建后仍能识别同一个 App。也可以通过 `CODE_SIGN_IDENTITY` 指定签名身份；如果机器上没有可用证书，脚本会回退到临时签名，此时每次重建后可能需要重新授权。
-
-构建、关闭旧实例、安装到 `/Applications/Headset Gesture.app` 并立即运行最新 App：
+Build, replace the installed copy in `/Applications` and launch it:
 
 ```sh
-./scripts/build-and-run.sh
+./scripts/build-and-run.sh        # release
+./scripts/build-and-run.sh debug  # debug
 ```
 
-也可以构建并运行 debug 版本：
+Set `HEADSET_GESTURE_INSTALL_PATH` to install somewhere else.
 
-```sh
-./scripts/build-and-run.sh debug
-```
+## Releasing
 
-脚本使用自身所在位置定位项目，因此也可以从其他目录通过绝对路径调用。
-如需改用其他固定安装位置，可通过 `HEADSET_GESTURE_INSTALL_PATH` 指定完整的 `.app` 路径。
+Maintainers publish signed, notarized builds with one command. See [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
-## 正式发布
+## License
 
-当前流程面向 Developer ID 签名并经 Apple 公证的站外直接分发，不是 Mac App Store 提交流程。项目包含 App Icon 母版、`.icns` 生成脚本、通用二进制构建、Developer ID 签名检查和 `notarytool` 公证流程。第一次公开发布前，请先完成 [发布检查清单](RELEASE_CHECKLIST.md)，尤其是永久 Bundle ID、版本号、版权/许可证、隐私说明和干净环境测试。
-
-完整的签名与公证示例：
-
-```sh
-BUNDLE_IDENTIFIER=com.example.HeadsetGesture \
-MARKETING_VERSION=1.2.0 \
-BUILD_NUMBER=4 \
-COPYRIGHT_NOTICE='Copyright © 2026 Your Name. All rights reserved.' \
-NOTARY_PROFILE=HeadsetGesture \
-./scripts/prepare-release.sh
-```
-
-如果暂时不设置 `NOTARY_PROFILE`，脚本只生成并验证已签名的发布包；公开分发前仍需执行 `./scripts/notarize-app.sh`。隐私处理说明见 [PRIVACY.md](PRIVACY.md)。
+[MIT](LICENSE) © 2026 Jarvis Luk

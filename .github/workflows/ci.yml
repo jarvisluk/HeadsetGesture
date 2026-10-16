@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal app bundle (ad-hoc signed)
+        run: UNIVERSAL_BUILD=1 ./scripts/build-app.sh release
+
+      - name: Check bundle architectures
+        run: lipo -archs "dist/Headset Gesture.app/Contents/MacOS/HeadsetGesture"

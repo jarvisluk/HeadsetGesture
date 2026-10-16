@@ -29,6 +29,7 @@ final class AppModel: ObservableObject {
     private var dockIconSubscription: AnyCancellable?
 
     init() {
+        SettingsStore.migrateLegacyDefaults()
         let settings = SettingsStore()
         let longPressDurationOverlay = LongPressDurationOverlayController(settings: settings)
         self.settings = settings
