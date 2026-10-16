@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:headset-gesture-macos}",
+            "name": "Debug HeadsetGesture",
+            "target": "HeadsetGesture",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug HeadsetGesture"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:headset-gesture-macos}",
+            "name": "Release HeadsetGesture",
+            "target": "HeadsetGesture",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release HeadsetGesture"
+        }
+    ]
+}
