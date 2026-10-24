@@ -107,6 +107,7 @@ private struct DashboardView: View {
 
 private struct CustomizationView: View {
     @ObservedObject var settings: SettingsStore
+    @State private var selectedButton: HeadsetButton = .playPause
 
     var body: some View {
         Form {
@@ -165,29 +166,51 @@ private struct CustomizationView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Single Tap") {
-                ActionEditor(action: $settings.singleTapAction)
-                Text("A single tap runs after the double-tap interval expires.")
+            Section("Button") {
+                Picker("Button", selection: $selectedButton) {
+                    ForEach(HeadsetButton.allCases) { button in
+                        Text(button.title).tag(button)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("USB-C headsets and Apple-standard wired remotes report separate volume buttons. On most other wired headsets every button reports Play/Pause, so only the Play/Pause mappings apply.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Single Tap") {
+                ActionEditor(action: actionBinding(for: .singleTap))
+                Text(selectedMapping.maxTapCount == 1
+                    ? "Double and triple tap are off, so a single tap runs immediately."
+                    : "A single tap runs after the double-tap interval expires."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
 
             Section("Double Tap") {
-                ActionEditor(action: $settings.doubleTapAction)
-                Text("A double tap runs after the tap interval expires so a third tap can still be detected.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                ActionEditor(action: actionBinding(for: .doubleTap))
+                Text(selectedMapping.maxTapCount == 3
+                    ? "A double tap runs after the tap interval expires so a third tap can still be detected."
+                    : "Triple tap is off, so a double tap runs on the second tap."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
 
             Section("Triple Tap") {
-                ActionEditor(action: $settings.tripleTapAction)
-                Text("Disabled by default. The third tap runs immediately when enabled.")
+                ActionEditor(action: actionBinding(for: .tripleTap))
+                Text("Off by default. The third tap runs immediately when enabled.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
             Section("Long Press") {
-                ActionEditor(action: $settings.longPressAction)
+                ActionEditor(action: actionBinding(for: .longPress))
+                Text("When this action is off, holding the button counts as a tap.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             .disabled(!settings.longPressRecognitionEnabled)
 
@@ -212,12 +235,20 @@ private struct CustomizationView: View {
                 }
             }
             .disabled(!settings.longPressRecognitionEnabled)
-
-            Text("All three physical buttons currently emit the same signal, so they share these gesture mappings.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+    }
+
+    private var selectedMapping: ButtonGestureMapping {
+        settings.gestureMapping(for: selectedButton)
+    }
+
+    private func actionBinding(for gesture: RecognizedGesture) -> Binding<KeyAction> {
+        let button = selectedButton
+        return Binding(
+            get: { settings.gestureMapping(for: button).action(for: gesture) },
+            set: { settings.setAction($0, for: gesture, on: button) }
+        )
     }
 }
 

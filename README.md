@@ -4,11 +4,11 @@
 
 <img src="Resources/Brand/AppIcon.png" alt="Headset Gesture icon" width="160">
 
-Turn the button on a wired headset into a programmable input on macOS. Headset Gesture takes exclusive control of the headset's Play/Pause button and maps single, double and triple taps and long presses to keys, shortcuts, media keys, Shortcuts or shell commands.
+Turn the buttons on a wired or USB-C headset into programmable inputs on macOS. Headset Gesture takes exclusive control of the headset's Play/Pause and volume buttons and maps single, double and triple taps and long presses to keys, shortcuts, media keys, Shortcuts or shell commands.
 
 ## Features
 
-- Map **single tap**, **double tap**, **triple tap** and **long press** independently.
+- Map **single tap**, **double tap**, **triple tap** and **long press** independently, with a separate set for **Volume Up** and **Volume Down** on headsets that report them.
 - Actions: any key or key combination (F13–F20, letters, Space, Return, Escape, Tab), left/right Control, Option and Command as separate keys, media keys (Play/Pause, Next, Previous, Volume, Mute), a macOS Shortcut, or a shell command.
 - Adjustable double-tap interval and long-press threshold, with a tap-only mode for headsets that drop release events.
 - An optional on-screen timer while you hold the button, shown at one of seven positions or next to the focused text field.
@@ -19,7 +19,7 @@ Turn the button on a wired headset into a programmable input on macOS. Headset G
 ## Requirements
 
 - macOS 13 Ventura or later, Apple silicon or Intel.
-- A wired headset with an inline button, plugged into the Mac's headphone jack (it appears to macOS as an HID device named `Headset`).
+- A wired headset with an inline button, plugged into the Mac's headphone jack (it appears to macOS as an HID device named `Headset`), or a USB-C headset with inline buttons. USB devices are only taken over when they also provide a USB Audio interface, so keyboards and receivers with media keys are left alone.
 
 ## Install
 
@@ -38,8 +38,9 @@ To hide the Dock icon, turn off **Show icon in Dock** in Customization → App o
 | Double tap | F13 |
 | Triple tap | Off |
 | Long press | F14 (long-press recognition is off by default) |
+| Volume Up / Volume Down single tap | Volume Up / Volume Down (other volume-button gestures are off) |
 
-A single tap fires once the double-tap interval has passed, so the app can tell it apart from a double tap.
+A single tap fires once the double-tap interval has passed, so the app can tell it apart from a double tap. When a button's double and triple taps are both off, its single tap fires immediately; when its long press is off, holding it counts as a tap.
 
 ## Hardware notes
 
@@ -48,7 +49,7 @@ The `Headset` device is the Mac's headphone-jack remote decoder (`AppleCS42L84Mi
 - the volume buttons send nothing, or are read as Play/Pause, so all buttons share one set of gestures;
 - an off-center press can hold the Play/Pause signal down, and clicks during that time are lost.
 
-If you need separate volume buttons, use an Apple-standard wired headset, or a USB-C or Bluetooth headset.
+If you need separate volume buttons, use an Apple-standard wired headset or a USB-C headset. USB-C headsets report Play/Pause (0xCD), Volume Up (0xE9) and Volume Down (0xEA) as separate usages; pick the button in Customization to edit its gestures.
 
 ## About "new" keys
 

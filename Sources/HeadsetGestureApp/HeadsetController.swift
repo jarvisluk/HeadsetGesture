@@ -33,6 +33,7 @@ final class HeadsetController: ObservableObject {
     @Published private(set) var inputMonitoringGranted = HeadsetController.hasInputMonitoringAccess
     @Published private(set) var accessibilityGranted = AXIsProcessTrusted()
     @Published private(set) var isHeadsetButtonPressed = false
+    @Published private(set) var lastInputButton: HeadsetButton = .playPause
     @Published private(set) var currentInputSignalText = "No key pressed"
     @Published private(set) var gesturePreviewText = "Idle"
     @Published private(set) var mappedOutputPreviewText = "No output yet"
@@ -52,22 +53,16 @@ final class HeadsetController: ObservableObject {
     private let settings: SettingsStore
     private let longPressDurationOverlay: LongPressDurationOverlayController
     private var manager: IOHIDManager?
-    private var stateMachine: GestureStateMachine
-    private var tapSequenceWorkItem: DispatchWorkItem?
-    private var longPressWorkItem: DispatchWorkItem?
-    private var stuckPressWorkItem: DispatchWorkItem?
+    /// Devices this app has seized. The manager itself is never opened, so
+    /// matched devices that are not headsets stay untouched.
+    private var openedDevices: [IOHIDDevice] = []
+    private let channels: [HeadsetButton: ButtonChannel]
     private var inputEventSequence = 0
     private var pressSequence = 0
-    private var activePressDiagnostic: ActivePressDiagnostic?
     private var normalDiagnosticCount = 0
     private var appDelayDiagnosticCount = 0
     private var inputHeldDiagnosticCount = 0
-    private var lastTapOnlyActivationAt: TimeInterval?
-    private var connectedDeviceCount = 0
     private var lastDeviceAddedAt: TimeInterval?
-    /// Whether the most recent Play/Pause report was a press. A release that
-    /// follows another release means the headset dropped the press report.
-    private var lastPlayPauseReportWasPress = false
     private var permissionPollTimer: Timer?
 
     private static let releaseConfirmationWindow: TimeInterval = 1.0
@@ -86,16 +81,56 @@ final class HeadsetController: ObservableObject {
         var longPressWasEmittedImmediately = false
     }
 
+    /// Recognition state of one physical button. Each button has its own
+    /// gesture sequence, so a volume press never completes a Play/Pause double tap.
+    private final class ButtonChannel {
+        let button: HeadsetButton
+        var stateMachine: GestureStateMachine
+        var tapSequenceWorkItem: DispatchWorkItem?
+        var longPressWorkItem: DispatchWorkItem?
+        var stuckPressWorkItem: DispatchWorkItem?
+        var activePressDiagnostic: ActivePressDiagnostic?
+        var lastTapOnlyActivationAt: TimeInterval?
+        /// Whether the most recent report was a press. A release that follows
+        /// another release means the headset dropped the press report.
+        var lastReportWasPress = false
+
+        init(button: HeadsetButton, stateMachine: GestureStateMachine) {
+            self.button = button
+            self.stateMachine = stateMachine
+        }
+
+        func cancelTimers() {
+            tapSequenceWorkItem?.cancel()
+            tapSequenceWorkItem = nil
+            cancelPressTimers()
+        }
+
+        func cancelPressTimers() {
+            longPressWorkItem?.cancel()
+            longPressWorkItem = nil
+            stuckPressWorkItem?.cancel()
+            stuckPressWorkItem = nil
+        }
+    }
+
     init(
         settings: SettingsStore,
         longPressDurationOverlay: LongPressDurationOverlayController
     ) {
         self.settings = settings
         self.longPressDurationOverlay = longPressDurationOverlay
-        stateMachine = GestureStateMachine(
-            doubleTapInterval: settings.doubleTapInterval,
-            longPressDuration: settings.longPressDuration
-        )
+        var channels: [HeadsetButton: ButtonChannel] = [:]
+        for button in HeadsetButton.allCases {
+            channels[button] = ButtonChannel(
+                button: button,
+                stateMachine: GestureStateMachine(
+                    doubleTapInterval: settings.doubleTapInterval,
+                    longPressDuration: settings.longPressDuration
+                )
+            )
+        }
+        self.channels = channels
         gestureDiagnosticLogger.info("event=diagnostics_ready")
         updatePermissionPolling()
     }
@@ -104,53 +139,27 @@ final class HeadsetController: ObservableObject {
         guard manager == nil else { return }
         refreshPermissionStatus()
 
-        let newManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        let matching: [String: Any] = [
-            kIOHIDProductKey as String: "Headset",
-            kIOHIDPrimaryUsagePageKey as String: 0x0c
-        ]
-        let context = Unmanaged.passUnretained(self).toOpaque()
-
-        IOHIDManagerSetDeviceMatching(newManager, matching as CFDictionary)
-        IOHIDManagerRegisterDeviceMatchingCallback(newManager, Self.deviceAddedCallback, context)
-        IOHIDManagerRegisterDeviceRemovalCallback(newManager, Self.deviceRemovedCallback, context)
-        IOHIDManagerRegisterInputValueCallback(newManager, Self.valueCallback, context)
-        IOHIDManagerScheduleWithRunLoop(
-            newManager,
-            CFRunLoopGetMain(),
-            CFRunLoopMode.commonModes.rawValue
-        )
-
-        let result = IOHIDManagerOpen(newManager, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-        guard result == kIOReturnSuccess else {
-            IOHIDManagerUnscheduleFromRunLoop(
-                newManager,
-                CFRunLoopGetMain(),
-                CFRunLoopMode.commonModes.rawValue
-            )
-            inputMonitoringGranted = false
-            updatePermissionPolling()
-            isRunning = false
-            isConnected = false
-            statusText = result == kIOReturnNotPermitted
-                ? "Input Monitoring permission required"
-                : String(format: "Failed to start: 0x%08x", UInt32(bitPattern: result))
-            return
-        }
-
-        inputMonitoringGranted = Self.hasInputMonitoringAccess
         guard inputMonitoringGranted else {
-            IOHIDManagerUnscheduleFromRunLoop(
-                newManager,
-                CFRunLoopGetMain(),
-                CFRunLoopMode.commonModes.rawValue
-            )
-            IOHIDManagerClose(newManager, IOOptionBits(kIOHIDOptionsTypeNone))
             isRunning = false
             isConnected = false
             statusText = "Input Monitoring permission required"
             return
         }
+
+        let newManager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
+        let context = Unmanaged.passUnretained(self).toOpaque()
+
+        IOHIDManagerSetDeviceMatchingMultiple(
+            newManager,
+            HeadsetDeviceFilter.matchingDictionaries as CFArray
+        )
+        IOHIDManagerRegisterDeviceMatchingCallback(newManager, Self.deviceAddedCallback, context)
+        IOHIDManagerRegisterDeviceRemovalCallback(newManager, Self.deviceRemovedCallback, context)
+        IOHIDManagerScheduleWithRunLoop(
+            newManager,
+            CFRunLoopGetMain(),
+            CFRunLoopMode.commonModes.rawValue
+        )
 
         manager = newManager
         isRunning = true
@@ -158,14 +167,16 @@ final class HeadsetController: ObservableObject {
     }
 
     func stop() {
-        tapSequenceWorkItem?.cancel()
-        tapSequenceWorkItem = nil
-        longPressWorkItem?.cancel()
-        longPressWorkItem = nil
-        stuckPressWorkItem?.cancel()
-        stuckPressWorkItem = nil
-        stateMachine.reset()
+        for channel in channels.values {
+            channel.cancelTimers()
+            channel.stateMachine.reset()
+        }
         resetCurrentInputPreview(status: "Monitoring stopped")
+
+        for device in openedDevices {
+            close(device)
+        }
+        openedDevices.removeAll()
 
         if let manager {
             IOHIDManagerUnscheduleFromRunLoop(
@@ -173,11 +184,9 @@ final class HeadsetController: ObservableObject {
                 CFRunLoopGetMain(),
                 CFRunLoopMode.commonModes.rawValue
             )
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
 
         manager = nil
-        connectedDeviceCount = 0
         isRunning = false
         isConnected = false
         statusText = "Interception disabled"
@@ -321,10 +330,52 @@ final class HeadsetController: ObservableObject {
     }
 
     private func deviceAdded(_ device: IOHIDDevice) {
-        connectedDeviceCount += 1
+        let product = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "Unknown"
+        // A device matching both dictionaries can arrive as two IOHIDDevice
+        // objects for the same service; the second open would fail as exclusive.
+        let service = IOHIDDeviceGetService(device)
+        guard !openedDevices.contains(where: { $0 === device || IOHIDDeviceGetService($0) == service }) else {
+            return
+        }
+        guard HeadsetDeviceFilter.shouldIntercept(device) else {
+            gestureDiagnosticLogger.info("event=device_skipped product=\(product, privacy: .public)")
+            return
+        }
+
+        let result = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        guard result == kIOReturnSuccess else {
+            let resultText = String(format: "0x%08x", UInt32(bitPattern: result))
+            gestureDiagnosticLogger.info(
+                "event=device_open_failed product=\(product, privacy: .public) result=\(resultText, privacy: .public)"
+            )
+            if result == kIOReturnNotPermitted {
+                inputMonitoringGranted = false
+                updatePermissionPolling()
+                statusText = "Input Monitoring permission required"
+            } else if openedDevices.isEmpty {
+                statusText = "Could not open \(product): \(resultText)"
+            }
+            return
+        }
+
+        IOHIDDeviceRegisterInputValueCallback(
+            device,
+            Self.valueCallback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )
+        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+        openedDevices.append(device)
+        gestureDiagnosticLogger.info("event=device_opened product=\(product, privacy: .public)")
+
         lastDeviceAddedAt = ProcessInfo.processInfo.systemUptime
         isConnected = true
         statusText = connectedStatusText
+    }
+
+    private func close(_ device: IOHIDDevice) {
+        IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
+        IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+        IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
     }
 
     private var connectedStatusText: String {
@@ -334,18 +385,16 @@ final class HeadsetController: ObservableObject {
     }
 
     private func deviceRemoved(_ device: IOHIDDevice) {
-        connectedDeviceCount = max(0, connectedDeviceCount - 1)
-        // Another matching "Headset" interface may still be attached.
-        guard connectedDeviceCount == 0 else { return }
+        guard let index = openedDevices.firstIndex(where: { $0 === device }) else { return }
+        openedDevices.remove(at: index)
+        // Another headset may still be attached.
+        guard openedDevices.isEmpty else { return }
         isConnected = false
         statusText = "Headset disconnected"
-        tapSequenceWorkItem?.cancel()
-        tapSequenceWorkItem = nil
-        longPressWorkItem?.cancel()
-        longPressWorkItem = nil
-        stuckPressWorkItem?.cancel()
-        stuckPressWorkItem = nil
-        stateMachine.reset()
+        for channel in channels.values {
+            channel.cancelTimers()
+            channel.stateMachine.reset()
+        }
         resetCurrentInputPreview(status: "Device disconnected")
     }
 
@@ -365,28 +414,34 @@ final class HeadsetController: ObservableObject {
         gestureDiagnosticLogger.info(
             "event=raw usage=\(usageText, privacy: .public) value=\(rawValue, privacy: .public) input_ts=\(rawText, privacy: .public) delivery_ms=\(rawDelayText, privacy: .public)"
         )
-        guard page == 0x0c, usage == 0x00cd else { return }
+        guard let button = HeadsetButton(usagePage: page, usage: usage),
+              let channel = channels[button] else { return }
 
-        stateMachine.doubleTapInterval = settings.doubleTapInterval
-        stateMachine.longPressDuration = settings.longPressDuration
+        let mapping = settings.gestureMapping(for: button)
+        channel.stateMachine.doubleTapInterval = settings.doubleTapInterval
+        channel.stateMachine.longPressDuration = settings.longPressDuration
+        channel.stateMachine.maxTapCount = mapping.maxTapCount
+        channel.stateMachine.recognizesLongPress = mapping.longPress.enabled
         let isPressed = rawValue != 0
         let isReleaseWithoutPress = !isPressed
-            && !lastPlayPauseReportWasPress
+            && !channel.lastReportWasPress
             && !isWithinDeviceAttachGracePeriod(inputTimestamp)
-        lastPlayPauseReportWasPress = isPressed
+        channel.lastReportWasPress = isPressed
 
+        lastInputButton = button
         isHeadsetButtonPressed = isPressed
         currentInputSignalText = isPressed
-            ? "Consumer Play/Pause (0xCD)"
+            ? button.signalText
             : "No key pressed"
         lastRawInputValue = rawValue
         if isReleaseWithoutPress {
-            handleReleaseWithoutPress(rawValue: rawValue, inputTimestamp: inputTimestamp)
+            handleReleaseWithoutPress(on: channel, rawValue: rawValue, inputTimestamp: inputTimestamp)
             return
         }
 
         if !settings.longPressRecognitionEnabled {
             handleTapOnlySignal(
+                on: channel,
                 isPressed: isPressed,
                 rawValue: rawValue,
                 inputTimestamp: inputTimestamp
@@ -395,24 +450,21 @@ final class HeadsetController: ObservableObject {
         }
 
         if isPressed {
-            if stateMachine.isDown {
-                guard stateMachine.recoverStuckPress(at: inputTimestamp) else {
+            if channel.stateMachine.isDown {
+                guard channel.stateMachine.recoverStuckPress(at: inputTimestamp) else {
                     recordInputEvent(
                         kind: .press,
                         title: "Repeated press",
-                        detail: String(format: "Consumer 0xCD · raw value %d", rawValue)
+                        detail: String(format: "%@ · raw value %d", button.signalText, rawValue)
                     )
                     gestureDiagnosticLogger.info("event=repeated_down action=ignored")
                     return
                 }
-                longPressWorkItem?.cancel()
-                longPressWorkItem = nil
-                stuckPressWorkItem?.cancel()
-                stuckPressWorkItem = nil
-                recordStuckPressRecovery(recoveredAt: inputTimestamp, newPressWasPreserved: true)
+                channel.cancelPressTimers()
+                recordStuckPressRecovery(on: channel, recoveredAt: inputTimestamp, newPressWasPreserved: true)
             }
             pressSequence += 1
-            activePressDiagnostic = ActivePressDiagnostic(
+            channel.activePressDiagnostic = ActivePressDiagnostic(
                 sequence: pressSequence,
                 inputDownAt: inputTimestamp,
                 callbackDownAt: timestamp,
@@ -426,18 +478,19 @@ final class HeadsetController: ObservableObject {
                 kind: .press,
                 title: "Pressed",
                 detail: String(
-                    format: "Sample #%d · input delivery %.1f ms",
+                    format: "%@ · sample #%d · input delivery %.1f ms",
+                    button.shortTitle,
                     pressSequence,
                     deliveryMilliseconds
                 )
             )
             gestureDiagnosticLogger.info(
-                "sample=\(self.pressSequence, privacy: .public) event=down input_delivery_ms=\(deliveryText, privacy: .public) threshold_ms=\(thresholdText, privacy: .public)"
+                "sample=\(self.pressSequence, privacy: .public) event=down button=\(button.rawValue, privacy: .public) input_delivery_ms=\(deliveryText, privacy: .public) threshold_ms=\(thresholdText, privacy: .public)"
             )
 
-            let tapNumber = stateMachine.nextTapNumber(at: inputTimestamp)
-            tapSequenceWorkItem?.cancel()
-            tapSequenceWorkItem = nil
+            let tapNumber = channel.stateMachine.nextTapNumber(at: inputTimestamp)
+            channel.tapSequenceWorkItem?.cancel()
+            channel.tapSequenceWorkItem = nil
             pressBeganAt = timestamp
             switch tapNumber {
             case 2:
@@ -447,36 +500,36 @@ final class HeadsetController: ObservableObject {
             default:
                 gesturePreviewText = "Holding…"
             }
-            emit(stateMachine.buttonDown(at: inputTimestamp))
-            longPressDurationOverlay.begin(
-                at: timestamp,
-                threshold: settings.longPressDuration
-            )
-            scheduleLongPress(after: settings.longPressDuration)
+            emit(channel.stateMachine.buttonDown(at: inputTimestamp), on: channel)
+            if channel.stateMachine.recognizesLongPress {
+                longPressDurationOverlay.begin(
+                    at: timestamp,
+                    threshold: settings.longPressDuration
+                )
+                scheduleLongPress(on: channel, after: settings.longPressDuration)
+            }
         } else {
             longPressDurationOverlay.end()
             pressBeganAt = nil
-            longPressWorkItem?.cancel()
-            longPressWorkItem = nil
-            stuckPressWorkItem?.cancel()
-            stuckPressWorkItem = nil
-            let recoveredReleaseOnlyTap = stateMachine.isAwaitingReleaseOnlyTap
-            let gestures = stateMachine.buttonUp(at: inputTimestamp)
+            channel.cancelPressTimers()
+            let recoveredReleaseOnlyTap = channel.stateMachine.isAwaitingReleaseOnlyTap
+            let gestures = channel.stateMachine.buttonUp(at: inputTimestamp)
             if recoveredReleaseOnlyTap {
                 recordRecoveredReleaseOnlyTap()
             } else {
                 recordReleaseDiagnostic(
+                    on: channel,
                     inputUpAt: inputTimestamp,
                     callbackUpAt: timestamp,
                     releaseGestures: gestures
                 )
             }
-            emit(gestures)
-            if stateMachine.hasPendingTapSequence {
-                gesturePreviewText = stateMachine.pendingTapCount == 1
+            emit(gestures, on: channel)
+            if channel.stateMachine.hasPendingTapSequence {
+                gesturePreviewText = channel.stateMachine.pendingTapCount == 1
                     ? "Waiting for second tap"
                     : "Waiting for third tap"
-                scheduleTapSequenceResolution(after: settings.doubleTapInterval)
+                scheduleTapSequenceResolution(on: channel, after: settings.doubleTapInterval)
             } else if gestures.isEmpty, gesturePreviewText != "Long press recognized" {
                 gesturePreviewText = "Released"
             }
@@ -484,33 +537,31 @@ final class HeadsetController: ObservableObject {
     }
 
     private func handleTapOnlySignal(
+        on channel: ButtonChannel,
         isPressed: Bool,
         rawValue: Int,
         inputTimestamp: TimeInterval
     ) {
-        longPressWorkItem?.cancel()
-        longPressWorkItem = nil
-        stuckPressWorkItem?.cancel()
-        stuckPressWorkItem = nil
+        channel.cancelPressTimers()
         longPressDurationOverlay.end()
         pressBeganAt = nil
-        activePressDiagnostic = nil
+        channel.activePressDiagnostic = nil
         isHeadsetButtonPressed = false
 
         guard isPressed else {
-            if stateMachine.isDown || stateMachine.isAwaitingReleaseOnlyTap {
-                stateMachine.reset()
+            if channel.stateMachine.isDown || channel.stateMachine.isAwaitingReleaseOnlyTap {
+                channel.stateMachine.reset()
             }
             currentInputSignalText = "No key pressed"
             recordInputEvent(
                 kind: .release,
                 title: "Released",
-                detail: "Tap-only mode · release not required"
+                detail: "\(channel.button.shortTitle) · tap-only mode · release not required"
             )
             return
         }
 
-        guard registerTap(at: inputTimestamp) else {
+        guard registerTap(on: channel, at: inputTimestamp) else {
             gestureDiagnosticLogger.info("event=tap_only_down action=debounced")
             return
         }
@@ -518,7 +569,7 @@ final class HeadsetController: ObservableObject {
         recordInputEvent(
             kind: .press,
             title: "Tap pulse",
-            detail: String(format: "Tap-only mode · raw value %d", rawValue)
+            detail: String(format: "%@ · tap-only mode · raw value %d", channel.button.shortTitle, rawValue)
         )
         lastGestureDiagnosticText = "Tap-only mode: the press pulse was accepted without waiting for release."
         gestureDiagnosticLogger.info("event=tap_only_down action=accepted")
@@ -526,18 +577,19 @@ final class HeadsetController: ObservableObject {
 
     /// The headset sometimes drops the press report of a click and only sends the
     /// release. Count that release as the tap instead of losing the click.
-    private func handleReleaseWithoutPress(rawValue: Int, inputTimestamp: TimeInterval) {
-        longPressWorkItem?.cancel()
-        longPressWorkItem = nil
-        stuckPressWorkItem?.cancel()
-        stuckPressWorkItem = nil
+    private func handleReleaseWithoutPress(
+        on channel: ButtonChannel,
+        rawValue: Int,
+        inputTimestamp: TimeInterval
+    ) {
+        channel.cancelPressTimers()
         longPressDurationOverlay.end()
         pressBeganAt = nil
-        activePressDiagnostic = nil
+        channel.activePressDiagnostic = nil
         isHeadsetButtonPressed = false
         currentInputSignalText = "No key pressed"
 
-        guard registerTap(at: inputTimestamp) else {
+        guard registerTap(on: channel, at: inputTimestamp) else {
             gestureDiagnosticLogger.info("event=release_without_press action=debounced")
             return
         }
@@ -552,21 +604,21 @@ final class HeadsetController: ObservableObject {
 
     /// Feeds one tap into the sequence recognizer. Returns false when the tap is
     /// rejected as contact bounce of the previous one.
-    private func registerTap(at inputTimestamp: TimeInterval) -> Bool {
-        if let lastTapOnlyActivationAt,
+    private func registerTap(on channel: ButtonChannel, at inputTimestamp: TimeInterval) -> Bool {
+        if let lastTapOnlyActivationAt = channel.lastTapOnlyActivationAt,
            inputTimestamp - lastTapOnlyActivationAt < Self.tapOnlyDebounceInterval {
             return false
         }
-        lastTapOnlyActivationAt = inputTimestamp
+        channel.lastTapOnlyActivationAt = inputTimestamp
 
-        tapSequenceWorkItem?.cancel()
-        tapSequenceWorkItem = nil
-        emit(stateMachine.registerTap(at: inputTimestamp))
-        if stateMachine.hasPendingTapSequence {
-            gesturePreviewText = stateMachine.pendingTapCount == 1
+        channel.tapSequenceWorkItem?.cancel()
+        channel.tapSequenceWorkItem = nil
+        emit(channel.stateMachine.registerTap(at: inputTimestamp), on: channel)
+        if channel.stateMachine.hasPendingTapSequence {
+            gesturePreviewText = channel.stateMachine.pendingTapCount == 1
                 ? "Waiting for second tap"
                 : "Waiting for third tap"
-            scheduleTapSequenceResolution(after: settings.doubleTapInterval)
+            scheduleTapSequenceResolution(on: channel, after: settings.doubleTapInterval)
         }
         return true
     }
@@ -576,40 +628,41 @@ final class HeadsetController: ObservableObject {
         return inputTimestamp - lastDeviceAddedAt < Self.deviceAttachGracePeriod
     }
 
-    private func scheduleTapSequenceResolution(after delay: TimeInterval) {
-        tapSequenceWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            let gestures = self.stateMachine.tapSequenceThresholdReached(
+    private func scheduleTapSequenceResolution(on channel: ButtonChannel, after delay: TimeInterval) {
+        channel.tapSequenceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self, weak channel] in
+            guard let self, let channel else { return }
+            let gestures = channel.stateMachine.tapSequenceThresholdReached(
                 at: ProcessInfo.processInfo.systemUptime
             )
-            self.tapSequenceWorkItem = nil
-            self.emit(gestures)
+            channel.tapSequenceWorkItem = nil
+            self.emit(gestures, on: channel)
         }
-        tapSequenceWorkItem = workItem
+        channel.tapSequenceWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    private func scheduleLongPress(after delay: TimeInterval) {
-        longPressWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+    private func scheduleLongPress(on channel: ButtonChannel, after delay: TimeInterval) {
+        channel.longPressWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self, weak channel] in
+            guard let self, let channel else { return }
             let timestamp = ProcessInfo.processInfo.systemUptime
-            self.longPressWorkItem = nil
-            if self.stateMachine.isDown {
-                self.activePressDiagnostic?.longPressThresholdReached = true
-                if let sample = self.activePressDiagnostic {
+            channel.longPressWorkItem = nil
+            if channel.stateMachine.isDown {
+                channel.activePressDiagnostic?.longPressThresholdReached = true
+                if let sample = channel.activePressDiagnostic {
                     switch sample.longPressTriggerMode {
                     case .onRelease:
                         self.gesturePreviewText = "Release to confirm long press"
                         self.scheduleStuckPressRecovery(
+                            on: channel,
                             for: sample.sequence,
                             after: Self.releaseConfirmationWindow
                         )
                     case .immediately:
-                        let gestures = self.stateMachine.longPressThresholdReached(at: timestamp)
-                        self.activePressDiagnostic?.longPressWasEmittedImmediately = gestures.contains(.longPress)
-                        self.emit(gestures)
+                        let gestures = channel.stateMachine.longPressThresholdReached(at: timestamp)
+                        channel.activePressDiagnostic?.longPressWasEmittedImmediately = gestures.contains(.longPress)
+                        self.emit(gestures, on: channel)
                     }
 
                     let callbackHoldMilliseconds = (timestamp - sample.callbackDownAt) * 1_000
@@ -620,26 +673,31 @@ final class HeadsetController: ObservableObject {
                 }
             }
         }
-        longPressWorkItem = workItem
+        channel.longPressWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
-    private func scheduleStuckPressRecovery(for sampleSequence: Int, after delay: TimeInterval) {
-        stuckPressWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
+    private func scheduleStuckPressRecovery(
+        on channel: ButtonChannel,
+        for sampleSequence: Int,
+        after delay: TimeInterval
+    ) {
+        channel.stuckPressWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self, weak channel] in
             guard let self,
-                  self.activePressDiagnostic?.sequence == sampleSequence,
-                  self.stateMachine.isDown else {
+                  let channel,
+                  channel.activePressDiagnostic?.sequence == sampleSequence,
+                  channel.stateMachine.isDown else {
                 return
             }
 
             let timestamp = ProcessInfo.processInfo.systemUptime
-            guard self.stateMachine.recoverStuckPress(
+            guard channel.stateMachine.recoverStuckPress(
                 at: timestamp,
                 acceptingNextReleaseAsTap: true
             ) else { return }
 
-            self.stuckPressWorkItem = nil
+            channel.stuckPressWorkItem = nil
             self.longPressDurationOverlay.end()
             self.pressBeganAt = nil
             self.isHeadsetButtonPressed = false
@@ -647,20 +705,22 @@ final class HeadsetController: ObservableObject {
             self.lastRawInputValue = 0
             self.gesturePreviewText = "Missing release; input reset"
             self.recordStuckPressRecovery(
+                on: channel,
                 recoveredAt: timestamp,
                 newPressWasPreserved: false
             )
         }
-        stuckPressWorkItem = workItem
+        channel.stuckPressWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
     private func recordStuckPressRecovery(
+        on channel: ButtonChannel,
         recoveredAt: TimeInterval,
         newPressWasPreserved: Bool
     ) {
-        guard let sample = activePressDiagnostic else { return }
-        activePressDiagnostic = nil
+        guard let sample = channel.activePressDiagnostic else { return }
+        channel.activePressDiagnostic = nil
 
         let heldMilliseconds = max(0, recoveredAt - sample.inputDownAt) * 1_000
         inputHeldDiagnosticCount += 1
@@ -697,16 +757,17 @@ final class HeadsetController: ObservableObject {
     }
 
     private func recordReleaseDiagnostic(
+        on channel: ButtonChannel,
         inputUpAt: TimeInterval,
         callbackUpAt: TimeInterval,
         releaseGestures: [RecognizedGesture]
     ) {
-        guard let sample = activePressDiagnostic else {
+        guard let sample = channel.activePressDiagnostic else {
             recordInputEvent(kind: .release, title: "Released", detail: "No matching press sample")
             gestureDiagnosticLogger.info("event=up result=unmatched_release")
             return
         }
-        activePressDiagnostic = nil
+        channel.activePressDiagnostic = nil
 
         let diagnostic = GestureTimingDiagnostic(
             inputHoldDuration: max(0, inputUpAt - sample.inputDownAt),
@@ -798,43 +859,35 @@ final class HeadsetController: ObservableObject {
         gestureDiagnosticSummaryText = "\(total) samples · normal \(normalDiagnosticCount) · input held \(inputHeldDiagnosticCount) · app delay \(appDelayDiagnosticCount)"
     }
 
-    private func emit(_ gestures: [RecognizedGesture]) {
+    private func emit(_ gestures: [RecognizedGesture], on channel: ButtonChannel) {
+        let button = channel.button
         for gesture in gestures {
-            gestureDiagnosticLogger.info("event=gesture type=\(String(describing: gesture), privacy: .public)")
+            gestureDiagnosticLogger.info(
+                "event=gesture button=\(button.rawValue, privacy: .public) type=\(String(describing: gesture), privacy: .public)"
+            )
             if settings.playGestureSound {
                 GestureFeedbackSound.play(for: gesture)
             }
-            switch gesture {
-            case .singleTap:
-                let output = settings.singleTapAction.summary
-                lastGestureText = "Single tap → \(output)"
-                gesturePreviewText = "Single tap recognized"
-                mappedOutputPreviewText = output
-                recordInputEvent(kind: .gesture, title: "Single tap", detail: "Output → \(output)")
-                settings.singleTapAction.perform()
-            case .doubleTap:
-                let output = settings.doubleTapAction.summary
-                lastGestureText = "Double tap → \(output)"
-                gesturePreviewText = "Double tap recognized"
-                mappedOutputPreviewText = output
-                recordInputEvent(kind: .gesture, title: "Double tap", detail: "Output → \(output)")
-                settings.doubleTapAction.perform()
-            case .tripleTap:
-                let output = settings.tripleTapAction.summary
-                lastGestureText = "Triple tap → \(output)"
-                gesturePreviewText = "Triple tap recognized"
-                mappedOutputPreviewText = output
-                recordInputEvent(kind: .gesture, title: "Triple tap", detail: "Output → \(output)")
-                settings.tripleTapAction.perform()
-            case .longPress:
-                let output = settings.longPressAction.summary
-                lastGestureText = "Long press → \(output)"
-                gesturePreviewText = "Long press recognized"
-                mappedOutputPreviewText = output
-                recordInputEvent(kind: .gesture, title: "Long press", detail: "Output → \(output)")
-                settings.longPressAction.perform()
-            }
+            let action = settings.gestureMapping(for: button).action(for: gesture)
+            let output = action.summary
+            let name = Self.gestureName(gesture, on: button)
+            lastGestureText = "\(name) → \(output)"
+            gesturePreviewText = "\(name) recognized"
+            mappedOutputPreviewText = output
+            recordInputEvent(
+                kind: .gesture,
+                title: gesture.title,
+                detail: "\(button.shortTitle) → \(output)"
+            )
+            action.perform()
         }
+    }
+
+    /// "Double tap" for Play/Pause, which existing users know as the only button,
+    /// and "Vol+ double tap" for the volume buttons.
+    private static func gestureName(_ gesture: RecognizedGesture, on button: HeadsetButton) -> String {
+        guard button != .playPause else { return gesture.title }
+        return "\(button.shortTitle) \(gesture.title.lowercased())"
     }
 
     private func recordInputEvent(kind: LiveInputEvent.Kind, title: String, detail: String) {
@@ -855,12 +908,14 @@ final class HeadsetController: ObservableObject {
     }
 
     private func resetCurrentInputPreview(status: String) {
-        stuckPressWorkItem?.cancel()
-        stuckPressWorkItem = nil
+        for channel in channels.values {
+            channel.stuckPressWorkItem?.cancel()
+            channel.stuckPressWorkItem = nil
+            channel.activePressDiagnostic = nil
+            channel.lastTapOnlyActivationAt = nil
+            channel.lastReportWasPress = false
+        }
         longPressDurationOverlay.end()
-        activePressDiagnostic = nil
-        lastTapOnlyActivationAt = nil
-        lastPlayPauseReportWasPress = false
         isHeadsetButtonPressed = false
         currentInputSignalText = "No key pressed"
         gesturePreviewText = status

@@ -1,15 +1,28 @@
 import Foundation
 
-enum RecognizedGesture: Equatable {
+enum RecognizedGesture: Equatable, CaseIterable {
     case singleTap
     case doubleTap
     case tripleTap
     case longPress
+
+    var title: String {
+        switch self {
+        case .singleTap: return "Single tap"
+        case .doubleTap: return "Double tap"
+        case .tripleTap: return "Triple tap"
+        case .longPress: return "Long press"
+        }
+    }
 }
 
 struct GestureStateMachine {
     var doubleTapInterval: TimeInterval
     var longPressDuration: TimeInterval
+    /// Tap sequences resolve as soon as they reach this length (1...3).
+    var maxTapCount = 3
+    /// When false, a press held past `longPressDuration` still counts as a tap.
+    var recognizesLongPress = true
 
     private(set) var isDown = false
     private var downAt: TimeInterval?
@@ -74,15 +87,15 @@ struct GestureStateMachine {
 
         completedTapCount += 1
         lastTapUpAt = timestamp
-        if completedTapCount == 3 {
-            clearPendingTaps()
-            gestures.append(.tripleTap)
+        if let gesture = resolveTapsAtMaximum() {
+            gestures.append(gesture)
         }
         return gestures
     }
 
     mutating func longPressThresholdReached(at timestamp: TimeInterval) -> [RecognizedGesture] {
-        guard isDown,
+        guard recognizesLongPress,
+              isDown,
               !longPressWasEmitted,
               let downAt,
               timestamp - downAt >= longPressDuration else {
@@ -129,18 +142,14 @@ struct GestureStateMachine {
             return []
         }
 
-        if timestamp - downAt >= longPressDuration {
+        if recognizesLongPress, timestamp - downAt >= longPressDuration {
             clearPendingTaps()
             return [.longPress]
         }
 
         completedTapCount += 1
         lastTapUpAt = timestamp
-        if completedTapCount == 3 {
-            clearPendingTaps()
-            return [.tripleTap]
-        }
-        return []
+        return resolveTapsAtMaximum().map { [$0] } ?? []
     }
 
     mutating func tapSequenceThresholdReached(at timestamp: TimeInterval) -> [RecognizedGesture] {
@@ -170,6 +179,21 @@ struct GestureStateMachine {
             gesture = .doubleTap
         default:
             gesture = nil
+        }
+        clearPendingTaps()
+        return gesture
+    }
+
+    private mutating func resolveTapsAtMaximum() -> RecognizedGesture? {
+        guard completedTapCount >= min(max(maxTapCount, 1), 3) else { return nil }
+        let gesture: RecognizedGesture
+        switch completedTapCount {
+        case 1:
+            gesture = .singleTap
+        case 2:
+            gesture = .doubleTap
+        default:
+            gesture = .tripleTap
         }
         clearPendingTaps()
         return gesture

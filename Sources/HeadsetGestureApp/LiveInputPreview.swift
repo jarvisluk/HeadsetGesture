@@ -30,7 +30,7 @@ struct LiveInputPreviewView: View {
 
             HStack(alignment: .firstTextBaseline) {
                 Label(
-                    "The three physical buttons all report this same 0xCD signal, so macOS cannot tell them apart.",
+                    "Volume buttons report 0xE9 and 0xEA only on USB-C headsets and Apple-standard remotes; elsewhere every button reports 0xCD.",
                     systemImage: "info.circle"
                 )
                 .font(.footnote)
@@ -114,7 +114,7 @@ struct LiveInputPreviewView: View {
             Text("Usage Page 0x0C")
             Text("•")
                 .foregroundStyle(.tertiary)
-            Text("Usage 0x00CD")
+            Text(String(format: "Usage 0x%04X", controller.lastInputButton.usage))
             Text("•")
                 .foregroundStyle(.tertiary)
             Text("Value \(controller.lastRawInputValue)")

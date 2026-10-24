@@ -25,6 +25,12 @@ final class SettingsStore: ObservableObject {
     @Published var doubleTapAction: KeyAction { didSet { saveEncoded(doubleTapAction, key: Keys.doubleTapAction) } }
     @Published var tripleTapAction: KeyAction { didSet { saveEncoded(tripleTapAction, key: Keys.tripleTapAction) } }
     @Published var longPressAction: KeyAction { didSet { saveEncoded(longPressAction, key: Keys.longPressAction) } }
+    @Published var volumeUpGestures: ButtonGestureMapping {
+        didSet { saveEncoded(volumeUpGestures, key: Keys.volumeUpGestures) }
+    }
+    @Published var volumeDownGestures: ButtonGestureMapping {
+        didSet { saveEncoded(volumeDownGestures, key: Keys.volumeDownGestures) }
+    }
     @Published private(set) var lastSavedAt: Date?
     @Published private(set) var saveErrorText: String?
 
@@ -54,13 +60,15 @@ final class SettingsStore: ObservableObject {
         static let doubleTapAction = "doubleTapAction"
         static let tripleTapAction = "tripleTapAction"
         static let longPressAction = "longPressAction"
+        static let volumeUpGestures = "volumeUpGestures"
+        static let volumeDownGestures = "volumeDownGestures"
         static let migratedLegacyDefaults = "migratedLegacyDefaults"
 
         static let settings = [
             enabled, showDockIcon, doubleTapInterval, longPressDuration,
             longPressRecognitionEnabled, longPressTriggerMode, showLongPressDuration,
             longPressDisplayPosition, playGestureSound, singleTapAction, doubleTapAction,
-            tripleTapAction, longPressAction
+            tripleTapAction, longPressAction, volumeUpGestures, volumeDownGestures
         ]
     }
 
@@ -102,6 +110,38 @@ final class SettingsStore: ObservableObject {
         doubleTapAction = Self.load(KeyAction.self, key: Keys.doubleTapAction, defaults: defaults) ?? .defaultDoubleTap
         tripleTapAction = Self.load(KeyAction.self, key: Keys.tripleTapAction, defaults: defaults) ?? .defaultTripleTap
         longPressAction = Self.load(KeyAction.self, key: Keys.longPressAction, defaults: defaults) ?? .defaultLongPress
+        volumeUpGestures = Self.load(ButtonGestureMapping.self, key: Keys.volumeUpGestures, defaults: defaults)
+            ?? .defaultVolumeUp
+        volumeDownGestures = Self.load(ButtonGestureMapping.self, key: Keys.volumeDownGestures, defaults: defaults)
+            ?? .defaultVolumeDown
+    }
+
+    /// Play/Pause keeps its original per-gesture keys so existing mappings load unchanged.
+    func gestureMapping(for button: HeadsetButton) -> ButtonGestureMapping {
+        switch button {
+        case .playPause:
+            return ButtonGestureMapping(
+                singleTap: singleTapAction,
+                doubleTap: doubleTapAction,
+                tripleTap: tripleTapAction,
+                longPress: longPressAction
+            )
+        case .volumeUp:
+            return volumeUpGestures
+        case .volumeDown:
+            return volumeDownGestures
+        }
+    }
+
+    func setAction(_ action: KeyAction, for gesture: RecognizedGesture, on button: HeadsetButton) {
+        switch (button, gesture) {
+        case (.playPause, .singleTap): singleTapAction = action
+        case (.playPause, .doubleTap): doubleTapAction = action
+        case (.playPause, .tripleTap): tripleTapAction = action
+        case (.playPause, .longPress): longPressAction = action
+        case (.volumeUp, _): volumeUpGestures.setAction(action, for: gesture)
+        case (.volumeDown, _): volumeDownGestures.setAction(action, for: gesture)
+        }
     }
 
     private func saveScalar(_ value: Any, key: String) {

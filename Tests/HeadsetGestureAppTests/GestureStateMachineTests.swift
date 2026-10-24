@@ -32,6 +32,43 @@ final class GestureStateMachineTests: XCTestCase {
         XCTAssertEqual(machine.tapSequenceThresholdReached(at: 0.70), [])
     }
 
+    func testSingleTapResolvesOnReleaseWhenItIsTheOnlyTapGesture() {
+        var machine = GestureStateMachine(doubleTapInterval: 0.30, longPressDuration: 0.60)
+        machine.maxTapCount = 1
+        _ = machine.buttonDown(at: 0.0)
+        XCTAssertEqual(machine.buttonUp(at: 0.05), [.singleTap])
+        _ = machine.buttonDown(at: 0.10)
+        XCTAssertEqual(machine.buttonUp(at: 0.15), [.singleTap])
+        XCTAssertFalse(machine.hasPendingTapSequence)
+    }
+
+    func testTapOnlyRepeatedTapsEachResolveWhenMaxTapCountIsOne() {
+        var machine = GestureStateMachine(doubleTapInterval: 0.30, longPressDuration: 0.60)
+        machine.maxTapCount = 1
+        XCTAssertEqual(machine.registerTap(at: 0.0), [.singleTap])
+        XCTAssertEqual(machine.registerTap(at: 0.1), [.singleTap])
+        XCTAssertEqual(machine.registerTap(at: 0.2), [.singleTap])
+    }
+
+    func testDoubleTapResolvesOnSecondReleaseWhenTripleTapIsOff() {
+        var machine = GestureStateMachine(doubleTapInterval: 0.30, longPressDuration: 0.60)
+        machine.maxTapCount = 2
+        _ = machine.buttonDown(at: 0.0)
+        XCTAssertEqual(machine.buttonUp(at: 0.05), [])
+        _ = machine.buttonDown(at: 0.15)
+        XCTAssertEqual(machine.buttonUp(at: 0.20), [.doubleTap])
+        XCTAssertFalse(machine.hasPendingTapSequence)
+    }
+
+    func testHeldPressCountsAsTapWhenLongPressIsOff() {
+        var machine = GestureStateMachine(doubleTapInterval: 0.30, longPressDuration: 0.60)
+        machine.maxTapCount = 1
+        machine.recognizesLongPress = false
+        _ = machine.buttonDown(at: 0.0)
+        XCTAssertEqual(machine.longPressThresholdReached(at: 0.7), [])
+        XCTAssertEqual(machine.buttonUp(at: 1.2), [.singleTap])
+    }
+
     func testTapOnlySingleTapDoesNotRequireRelease() {
         var machine = GestureStateMachine(doubleTapInterval: 0.30, longPressDuration: 0.60)
 

@@ -54,6 +54,41 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testVolumeButtonMappingsSaveAndReloadIndependently() {
+        let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = SettingsStore(defaults: defaults)
+        XCTAssertEqual(store.gestureMapping(for: .volumeUp), .defaultVolumeUp)
+        XCTAssertEqual(store.gestureMapping(for: .volumeDown), .defaultVolumeDown)
+
+        var doubleTap = KeyAction.defaultDoubleTap
+        doubleTap.key = .f18
+        store.setAction(doubleTap, for: .doubleTap, on: .volumeUp)
+
+        let reloaded = SettingsStore(defaults: defaults)
+        XCTAssertEqual(reloaded.gestureMapping(for: .volumeUp).doubleTap.key, .f18)
+        XCTAssertEqual(reloaded.gestureMapping(for: .volumeDown), .defaultVolumeDown)
+        XCTAssertEqual(reloaded.doubleTapAction, .defaultDoubleTap, "Play/Pause mappings must not change")
+    }
+
+    @MainActor
+    func testPlayPauseMappingUsesOriginalActionKeys() {
+        let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = SettingsStore(defaults: defaults)
+        var longPress = KeyAction.defaultLongPress
+        longPress.key = .f19
+        store.setAction(longPress, for: .longPress, on: .playPause)
+
+        XCTAssertEqual(store.longPressAction.key, .f19)
+        XCTAssertEqual(SettingsStore(defaults: defaults).gestureMapping(for: .playPause).longPress.key, .f19)
+    }
+
+    @MainActor
     func testTripleTapDefaultsToDisabled() {
         let suiteName = "SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
