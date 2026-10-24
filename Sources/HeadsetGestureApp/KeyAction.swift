@@ -296,21 +296,8 @@ struct KeyAction: Codable, Equatable {
     }
 
     private func postMediaEvent(_ mediaKey: MediaKeyChoice) {
-        for state in [0x0a, 0x0b] {
-            let data1 = (mediaKey.nxKeyCode << 16) | (state << 8)
-            let event = NSEvent.otherEvent(
-                with: .systemDefined,
-                location: .zero,
-                modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: 0,
-                context: nil,
-                subtype: 8,
-                data1: data1,
-                data2: -1
-            )
-            event?.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
-        }
+        MediaKeyEvent.post(nxKeyCode: mediaKey.nxKeyCode, isDown: true)
+        MediaKeyEvent.post(nxKeyCode: mediaKey.nxKeyCode, isDown: false)
     }
 
     private func runProcess(executable: String, arguments: [String]) {
@@ -320,5 +307,24 @@ struct KeyAction: Codable, Equatable {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try? process.run()
+    }
+}
+
+/// Posts the system-defined event macOS uses for media and special keys.
+enum MediaKeyEvent {
+    static func post(nxKeyCode: Int, isDown: Bool) {
+        let state = isDown ? 0x0a : 0x0b
+        let event = NSEvent.otherEvent(
+            with: .systemDefined,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            subtype: 8,
+            data1: (nxKeyCode << 16) | (state << 8),
+            data2: -1
+        )
+        event?.cgEvent?.post(tap: CGEventTapLocation.cghidEventTap)
     }
 }

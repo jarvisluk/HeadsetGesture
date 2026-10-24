@@ -39,3 +39,18 @@ final class HeadsetButtonTests: XCTestCase {
         XCTAssertFalse(HeadsetDeviceFilter.isHeadsetName("2.4G Wireless Receiver"))
     }
 }
+
+final class ConsumerKeyPassthroughTests: XCTestCase {
+    func testUnmappedConsumerKeysForwardToSystemKeys() {
+        XCTAssertEqual(ConsumerKeyPassthrough.nxKeyCode(usagePage: 0x0c, usage: 0xe2), 7)
+        XCTAssertEqual(ConsumerKeyPassthrough.nxKeyCode(usagePage: 0x0c, usage: 0xb5), 17)
+        XCTAssertEqual(ConsumerKeyPassthrough.nxKeyCode(usagePage: 0x0c, usage: 0xb6), 18)
+        XCTAssertNil(ConsumerKeyPassthrough.nxKeyCode(usagePage: 0x07, usage: 0xe2))
+    }
+
+    func testMappedButtonsAreNotForwarded() {
+        for button in HeadsetButton.allCases {
+            XCTAssertNil(ConsumerKeyPassthrough.nxKeyCode(usagePage: 0x0c, usage: button.usage))
+        }
+    }
+}

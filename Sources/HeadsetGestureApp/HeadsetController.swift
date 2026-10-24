@@ -56,6 +56,9 @@ final class HeadsetController: ObservableObject {
     /// Devices this app has seized. The manager itself is never opened, so
     /// matched devices that are not headsets stay untouched.
     private var openedDevices: [IOHIDDevice] = []
+    /// Headsets whose open was refused for missing Input Monitoring. The
+    /// permission poll retries them, since the manager never matches them again.
+    private var permissionDeniedDevices: [IOHIDDevice] = []
     private let channels: [HeadsetButton: ButtonChannel]
     private var inputEventSequence = 0
     private var pressSequence = 0
@@ -177,6 +180,7 @@ final class HeadsetController: ObservableObject {
             close(device)
         }
         openedDevices.removeAll()
+        permissionDeniedDevices.removeAll()
 
         if let manager {
             IOHIDManagerUnscheduleFromRunLoop(
@@ -216,7 +220,10 @@ final class HeadsetController: ObservableObject {
 
     func refreshPermissionStatus() {
         let previouslyGranted = inputMonitoringGranted
-        inputMonitoringGranted = Self.hasInputMonitoringAccess
+        retryPermissionDeniedDevices()
+        // Accessibility alone passes `hasInputMonitoringAccess`, but seizing a
+        // device can still be refused; that refusal is the authoritative answer.
+        inputMonitoringGranted = Self.hasInputMonitoringAccess && permissionDeniedDevices.isEmpty
         accessibilityGranted = AXIsProcessTrusted()
         if isConnected {
             statusText = connectedStatusText
@@ -349,6 +356,9 @@ final class HeadsetController: ObservableObject {
                 "event=device_open_failed product=\(product, privacy: .public) result=\(resultText, privacy: .public)"
             )
             if result == kIOReturnNotPermitted {
+                if !permissionDeniedDevices.contains(where: { $0 === device }) {
+                    permissionDeniedDevices.append(device)
+                }
                 inputMonitoringGranted = false
                 updatePermissionPolling()
                 statusText = "Input Monitoring permission required"
@@ -372,6 +382,14 @@ final class HeadsetController: ObservableObject {
         statusText = connectedStatusText
     }
 
+    private func retryPermissionDeniedDevices() {
+        guard manager != nil, !permissionDeniedDevices.isEmpty else { return }
+        let devices = permissionDeniedDevices
+        permissionDeniedDevices.removeAll()
+        // A device refused again is put back by `deviceAdded`.
+        devices.forEach(deviceAdded)
+    }
+
     private func close(_ device: IOHIDDevice) {
         IOHIDDeviceRegisterInputValueCallback(device, nil, nil)
         IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
@@ -385,6 +403,7 @@ final class HeadsetController: ObservableObject {
     }
 
     private func deviceRemoved(_ device: IOHIDDevice) {
+        permissionDeniedDevices.removeAll { $0 === device }
         guard let index = openedDevices.firstIndex(where: { $0 === device }) else { return }
         openedDevices.remove(at: index)
         // Another headset may still be attached.
@@ -414,6 +433,17 @@ final class HeadsetController: ObservableObject {
         gestureDiagnosticLogger.info(
             "event=raw usage=\(usageText, privacy: .public) value=\(rawValue, privacy: .public) input_ts=\(rawText, privacy: .public) delivery_ms=\(rawDelayText, privacy: .public)"
         )
+        if let nxKeyCode = ConsumerKeyPassthrough.nxKeyCode(usagePage: page, usage: usage) {
+            let isPressed = rawValue != 0
+            // A press right after attach can be leftover state; forwarding it
+            // would, for example, toggle mute when the headset is plugged in.
+            guard !isPressed || !isWithinDeviceAttachGracePeriod(inputTimestamp) else { return }
+            MediaKeyEvent.post(nxKeyCode: nxKeyCode, isDown: isPressed)
+            gestureDiagnosticLogger.info(
+                "event=passthrough usage=\(usageText, privacy: .public) value=\(rawValue, privacy: .public)"
+            )
+            return
+        }
         guard let button = HeadsetButton(usagePage: page, usage: usage),
               let channel = channels[button] else { return }
 

@@ -98,3 +98,24 @@ struct ButtonGestureMapping: Codable, Equatable {
         )
     }
 }
+
+/// Consumer keys a seized device can send besides the mapped buttons. Seizing
+/// hides them from macOS, so they are re-posted as the matching system key.
+enum ConsumerKeyPassthrough {
+    /// The NX_KEYTYPE code for a Consumer usage, or nil when macOS has none.
+    static func nxKeyCode(usagePage: UInt32, usage: UInt32) -> Int? {
+        guard usagePage == 0x0c else { return nil }
+        switch usage {
+        case 0x6f: return 2 // Display Brightness Increment → NX_KEYTYPE_BRIGHTNESS_UP
+        case 0x70: return 3 // Display Brightness Decrement → NX_KEYTYPE_BRIGHTNESS_DOWN
+        case 0xb0, 0xb1: return 16 // Play, Pause → NX_KEYTYPE_PLAY
+        case 0xb3: return 19 // Fast Forward → NX_KEYTYPE_FAST
+        case 0xb4: return 20 // Rewind → NX_KEYTYPE_REWIND
+        case 0xb5: return 17 // Scan Next Track → NX_KEYTYPE_NEXT
+        case 0xb6: return 18 // Scan Previous Track → NX_KEYTYPE_PREVIOUS
+        case 0xb8: return 14 // Eject → NX_KEYTYPE_EJECT
+        case 0xe2: return 7 // Mute → NX_KEYTYPE_MUTE
+        default: return nil
+        }
+    }
+}
