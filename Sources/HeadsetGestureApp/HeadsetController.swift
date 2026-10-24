@@ -896,7 +896,7 @@ final class HeadsetController: ObservableObject {
                 "event=gesture button=\(button.rawValue, privacy: .public) type=\(String(describing: gesture), privacy: .public)"
             )
             if settings.playGestureSound {
-                GestureFeedbackSound.play(for: gesture)
+                GestureFeedbackSound.play(settings.gestureSounds.sound(for: gesture))
             }
             let action = settings.gestureMapping(for: button).action(for: gesture)
             let output = action.summary

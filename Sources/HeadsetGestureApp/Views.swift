@@ -161,7 +161,11 @@ private struct CustomizationView: View {
                     .opacity(settings.longPressRecognitionEnabled ? 1 : 0.55)
 
                 Toggle("Play sound when a gesture is recognized", isOn: $settings.playGestureSound)
-                Text("Single tap, double tap, triple tap and long press each play a different system sound.")
+                ForEach(RecognizedGesture.allCases, id: \.self) { gesture in
+                    GestureSoundPicker(gesture: gesture, sound: soundBinding(for: gesture))
+                }
+                .disabled(!settings.playGestureSound)
+                Text("Choosing a sound plays it. Use the speaker button to hear it again.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -243,12 +247,46 @@ private struct CustomizationView: View {
         settings.gestureMapping(for: selectedButton)
     }
 
+    private func soundBinding(for gesture: RecognizedGesture) -> Binding<FeedbackSound> {
+        Binding(
+            get: { settings.gestureSounds.sound(for: gesture) },
+            set: { settings.gestureSounds.setSound($0, for: gesture) }
+        )
+    }
+
     private func actionBinding(for gesture: RecognizedGesture) -> Binding<KeyAction> {
         let button = selectedButton
         return Binding(
             get: { settings.gestureMapping(for: button).action(for: gesture) },
             set: { settings.setAction($0, for: gesture, on: button) }
         )
+    }
+}
+
+private struct GestureSoundPicker: View {
+    let gesture: RecognizedGesture
+    @Binding var sound: FeedbackSound
+
+    var body: some View {
+        HStack {
+            Picker(gesture.title, selection: $sound) {
+                ForEach(FeedbackSound.allCases) { sound in
+                    Text(sound.title).tag(sound)
+                }
+            }
+            .onChange(of: sound) { newSound in
+                GestureFeedbackSound.play(newSound)
+            }
+
+            Button {
+                GestureFeedbackSound.play(sound)
+            } label: {
+                Image(systemName: "speaker.wave.2")
+            }
+            .buttonStyle(.borderless)
+            .help("Preview \(sound.title)")
+            .accessibilityLabel("Preview \(gesture.title) sound")
+        }
     }
 }
 
