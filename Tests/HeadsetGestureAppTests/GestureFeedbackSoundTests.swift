@@ -27,6 +27,6 @@ final class GestureFeedbackSoundTests: XCTestCase {
 
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.gestureSounds.sound(for: .doubleTap), .glass)
-        XCTAssertEqual(reloaded.gestureSounds.sound(for: .singleTap), .tink)
+        XCTAssertEqual(reloaded.gestureSounds.sound(for: .singleTap), .morse)
     }
 }

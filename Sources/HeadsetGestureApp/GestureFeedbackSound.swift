@@ -24,9 +24,9 @@ enum FeedbackSound: String, Codable, CaseIterable, Identifiable {
 /// The sound played for each gesture. Defaults differ per gesture so single
 /// and double taps can be told apart by ear.
 struct GestureSoundSet: Codable, Equatable {
-    var singleTap: FeedbackSound = .tink
+    var singleTap: FeedbackSound = .morse
     var doubleTap: FeedbackSound = .pop
-    var tripleTap: FeedbackSound = .morse
+    var tripleTap: FeedbackSound = .tink
     var longPress: FeedbackSound = .bottle
 
     func sound(for gesture: RecognizedGesture) -> FeedbackSound {
