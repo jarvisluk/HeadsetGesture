@@ -18,6 +18,9 @@ final class SettingsStore: ObservableObject {
     @Published var longPressDisplayPosition: LongPressDisplayPosition {
         didSet { saveScalar(longPressDisplayPosition.rawValue, key: Keys.longPressDisplayPosition) }
     }
+    @Published var playGestureSound: Bool {
+        didSet { saveScalar(playGestureSound, key: Keys.playGestureSound) }
+    }
     @Published var singleTapAction: KeyAction { didSet { saveEncoded(singleTapAction, key: Keys.singleTapAction) } }
     @Published var doubleTapAction: KeyAction { didSet { saveEncoded(doubleTapAction, key: Keys.doubleTapAction) } }
     @Published var tripleTapAction: KeyAction { didSet { saveEncoded(tripleTapAction, key: Keys.tripleTapAction) } }
@@ -46,6 +49,7 @@ final class SettingsStore: ObservableObject {
         static let longPressTriggerMode = "longPressTriggerMode"
         static let showLongPressDuration = "showLongPressDuration"
         static let longPressDisplayPosition = "longPressDisplayPosition"
+        static let playGestureSound = "playGestureSound"
         static let singleTapAction = "singleTapAction"
         static let doubleTapAction = "doubleTapAction"
         static let tripleTapAction = "tripleTapAction"
@@ -55,7 +59,7 @@ final class SettingsStore: ObservableObject {
         static let settings = [
             enabled, showDockIcon, doubleTapInterval, longPressDuration,
             longPressRecognitionEnabled, longPressTriggerMode, showLongPressDuration,
-            longPressDisplayPosition, singleTapAction, doubleTapAction,
+            longPressDisplayPosition, playGestureSound, singleTapAction, doubleTapAction,
             tripleTapAction, longPressAction
         ]
     }
@@ -93,6 +97,7 @@ final class SettingsStore: ObservableObject {
         showLongPressDuration = defaults.object(forKey: Keys.showLongPressDuration) as? Bool ?? true
         longPressDisplayPosition = defaults.string(forKey: Keys.longPressDisplayPosition)
             .flatMap(LongPressDisplayPosition.init(rawValue:)) ?? .bottom
+        playGestureSound = defaults.object(forKey: Keys.playGestureSound) as? Bool ?? false
         singleTapAction = Self.load(KeyAction.self, key: Keys.singleTapAction, defaults: defaults) ?? .defaultSingleTap
         doubleTapAction = Self.load(KeyAction.self, key: Keys.doubleTapAction, defaults: defaults) ?? .defaultDoubleTap
         tripleTapAction = Self.load(KeyAction.self, key: Keys.tripleTapAction, defaults: defaults) ?? .defaultTripleTap

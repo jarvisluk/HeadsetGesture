@@ -801,6 +801,9 @@ final class HeadsetController: ObservableObject {
     private func emit(_ gestures: [RecognizedGesture]) {
         for gesture in gestures {
             gestureDiagnosticLogger.info("event=gesture type=\(String(describing: gesture), privacy: .public)")
+            if settings.playGestureSound {
+                GestureFeedbackSound.play(for: gesture)
+            }
             switch gesture {
             case .singleTap:
                 let output = settings.singleTapAction.summary

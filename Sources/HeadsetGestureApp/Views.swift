@@ -158,6 +158,11 @@ private struct CustomizationView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .opacity(settings.longPressRecognitionEnabled ? 1 : 0.55)
+
+                Toggle("Play sound when a gesture is recognized", isOn: $settings.playGestureSound)
+                Text("Single tap, double tap, triple tap and long press each play a different system sound.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Single Tap") {

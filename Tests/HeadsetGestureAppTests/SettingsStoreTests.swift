@@ -40,6 +40,7 @@ final class SettingsStoreTests: XCTestCase {
         store.longPressTriggerMode = .immediately
         store.showLongPressDuration = false
         store.longPressDisplayPosition = .focusedInput
+        store.playGestureSound = true
 
         let reloaded = SettingsStore(defaults: defaults)
         XCTAssertEqual(reloaded.doubleTapInterval, 0.45)
@@ -48,6 +49,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.longPressTriggerMode, .immediately)
         XCTAssertFalse(reloaded.showLongPressDuration)
         XCTAssertEqual(reloaded.longPressDisplayPosition, .focusedInput)
+        XCTAssertTrue(reloaded.playGestureSound)
         XCTAssertNotNil(store.lastSavedAt)
     }
 
