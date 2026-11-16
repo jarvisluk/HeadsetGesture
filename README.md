@@ -13,7 +13,7 @@ Turn the buttons on a wired or USB-C headset into programmable inputs on macOS. 
 - Adjustable double-tap interval and long-press threshold, with a tap-only mode for headsets that drop release events.
 - An optional on-screen timer while you hold the button, shown at one of seven positions or next to the focused text field.
 - A live monitor that shows the raw HID signal, the recognizer state, the mapped output and recent events.
-- Menu bar control panel; the Dock icon can be hidden.
+- Menu bar control panel; the Dock icon can be hidden, and the app can launch at login.
 - Everything runs locally. See [PRIVACY.md](PRIVACY.md).
 
 ## Requirements
@@ -29,6 +29,8 @@ Turn the buttons on a wired or USB-C headset into programmable inputs on macOS. 
 4. The app picks up the new permission automatically within a few seconds. If the status does not change, use **Restart App After Granting Access**.
 
 To hide the Dock icon, turn off **Show icon in Dock** in Customization → App or in the menu bar panel, then open the dashboard from the menu bar icon.
+
+**Launch at login** is in the same place. macOS only registers it when Headset Gesture.app is in the Applications folder; if the switch stays off or asks for approval, allow it under System Settings → General → Login Items.
 
 ## Defaults
 

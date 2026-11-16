@@ -26,7 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class AppModel: ObservableObject {
     let settings: SettingsStore
     let controller: HeadsetController
+    let launchAtLogin = LaunchAtLoginController()
     private var dockIconSubscription: AnyCancellable?
+    private var activationSubscription: AnyCancellable?
 
     init() {
         SettingsStore.migrateLegacyDefaults()
@@ -45,6 +47,13 @@ final class AppModel: ObservableObject {
             .sink { showDockIcon in
                 DockIconVisibility.apply(showDockIcon: showDockIcon)
             }
+        activationSubscription = NotificationCenter.default
+            .publisher(for: NSApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.launchAtLogin.refresh()
+                }
+            }
     }
 }
 
@@ -57,12 +66,20 @@ struct HeadsetGestureApp: App {
         // A single-instance Window so "Open Dashboard…" focuses the existing
         // window instead of stacking a new copy on every click.
         Window("Headset Gesture", id: "main") {
-            SettingsView(settings: model.settings, controller: model.controller)
+            SettingsView(
+                settings: model.settings,
+                controller: model.controller,
+                launchAtLogin: model.launchAtLogin
+            )
         }
         .defaultSize(width: 620, height: 780)
 
         MenuBarExtra {
-            MenuContentView(settings: model.settings, controller: model.controller)
+            MenuContentView(
+                settings: model.settings,
+                controller: model.controller,
+                launchAtLogin: model.launchAtLogin
+            )
         } label: {
             MenuBarLabel(settings: model.settings, controller: model.controller)
         }

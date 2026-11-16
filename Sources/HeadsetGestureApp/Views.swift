@@ -4,6 +4,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
     @ObservedObject var controller: HeadsetController
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
     @State private var selectedTab: MainTab = .dashboard
 
     var body: some View {
@@ -18,7 +19,7 @@ struct SettingsView: View {
             }
             .tag(MainTab.dashboard)
 
-            CustomizationView(settings: settings)
+            CustomizationView(settings: settings, launchAtLogin: launchAtLogin)
                 .tabItem {
                     Label("Customization", systemImage: "slider.horizontal.3")
                 }
@@ -107,6 +108,7 @@ private struct DashboardView: View {
 
 private struct CustomizationView: View {
     @ObservedObject var settings: SettingsStore
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
     @State private var selectedButton: HeadsetButton = .playPause
 
     var body: some View {
@@ -119,6 +121,19 @@ private struct CustomizationView: View {
                 Text("When the Dock icon is hidden, open the dashboard from the menu bar icon.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                Toggle("Launch at login", isOn: launchAtLoginBinding)
+                Text(launchAtLogin.state == .needsApproval
+                    ? "macOS still needs approval in System Settings → General → Login Items."
+                    : "Starts Headset Gesture when you log in. The app must live in the Applications folder."
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                if let errorText = launchAtLogin.errorText {
+                    Text(errorText)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                }
             }
 
             Section("Gesture Detection") {
@@ -241,6 +256,13 @@ private struct CustomizationView: View {
             .disabled(!settings.longPressRecognitionEnabled)
         }
         .formStyle(.grouped)
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isOn },
+            set: { launchAtLogin.setEnabled($0) }
+        )
     }
 
     private var selectedMapping: ButtonGestureMapping {
@@ -370,12 +392,13 @@ private struct ActionEditor: View {
 
 /// The menu bar panel (`.menuBarExtraStyle(.window)`): a status header with the
 /// interception switch, the last recognized gesture, the gesture map, and a
-/// footer with the Dock toggle, Dashboard and Quit.
+/// footer with the Dock and login toggles, Dashboard and Quit.
 struct MenuContentView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var settings: SettingsStore
     @ObservedObject var controller: HeadsetController
+    @ObservedObject var launchAtLogin: LaunchAtLoginController
 
     private var state: MenuBarState {
         MenuBarState.resolve(
@@ -494,6 +517,15 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle("Show Dock icon", isOn: $settings.showDockIcon)
                 .toggleStyle(.checkbox)
+            Toggle("Launch at login", isOn: launchAtLoginBinding)
+                .toggleStyle(.checkbox)
+            if launchAtLogin.state == .needsApproval || launchAtLogin.errorText != nil {
+                Text(launchAtLogin.errorText
+                    ?? "Approve in System Settings → General → Login Items."
+                )
+                .font(.caption)
+                .foregroundStyle(launchAtLogin.errorText == nil ? Color.secondary : Color.red)
+            }
             HStack {
                 Button("Open Dashboard…") {
                     dismiss()
@@ -507,6 +539,13 @@ struct MenuContentView: View {
             }
             .controlSize(.regular)
         }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { launchAtLogin.isOn },
+            set: { launchAtLogin.setEnabled($0) }
+        )
     }
 }
 
